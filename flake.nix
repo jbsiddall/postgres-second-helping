@@ -10,7 +10,8 @@
 
       withExtensions = pkgs.postgresql_18.withPackages (ps: with ps; [
         # Scheduling, incremental views, analytics, vectors and geospatial.
-        pg_cron pg_ivm pg_duckdb pgvector pgvectorscale postgis pgrouting h3-pg
+        pg_cron pg_ivm pg_duckdb (ps.callPackage ./pg-durable.nix { })
+        pgvector pgvectorscale postgis pgrouting h3-pg
         # Procedural languages. nixpkgs dropped plv8 (insecure NodeJS 20), so
         # JavaScript comes from PL/JS.
         plpython3 (ps.callPackage ./pljs.nix { })

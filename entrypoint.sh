@@ -119,8 +119,11 @@ fi
 
 if [ -n "$managed" ]; then
   settings+=(
-    -c shared_preload_libraries="${POSTGRES_SHARED_PRELOAD_LIBRARIES:-pg_stat_statements,pg_cron,pg_ivm,pg_duckdb}"
+    -c shared_preload_libraries="${POSTGRES_SHARED_PRELOAD_LIBRARIES:-pg_stat_statements,pg_cron,pg_ivm,pg_duckdb,pg_durable}"
     -c cron.database_name="${POSTGRES_CRON_DATABASE:-postgres}" -c cron.use_background_workers=on
+    -c pg_durable.database=postgres
+    -c pg_durable.worker_role="$POSTGRES_USER"
+    -c pg_durable.host=/run/postgresql
     -c max_worker_processes=16
     -c duckdb.max_memory=256MB
     -c listen_addresses='*'

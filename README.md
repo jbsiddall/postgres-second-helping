@@ -1,12 +1,12 @@
 # Postgres Sunday Roast
 
-PostgreSQL 18 with all the trimmings: one container image with 92 extensions
+PostgreSQL 18 with all the trimmings: one container image with 93 extensions
 ready to `CREATE EXTENSION`. It includes vectors, geospatial, DuckDB analytics,
 cron jobs, incremental views, queues, GraphQL, and Python and JavaScript
 functions, with SSL on for new clusters.
 
-It is built with [Nix](https://nixos.org) from a pinned nixpkgs, so every build
-uses the same inputs. It runs as a non-root user and follows the official
+It is built with [Nix](https://nixos.org) from a pinned nixpkgs and a
+checksum-pinned upstream pg_durable binary release, so every build uses the same inputs. It runs as a non-root user and follows the official
 `postgres` image's environment variables, so it is a drop-in replacement for
 most setups.
 
@@ -27,7 +27,7 @@ psql "postgres://postgres:change-me@localhost:5432/postgres?sslmode=require" \
 | AI and vectors | `vector` (pgvector 0.8), `vectorscale` (DiskANN) |
 | Analytics | `pg_duckdb` (DuckDB inside Postgres; query Parquet and CSV files) |
 | Geospatial | `postgis` with raster, topology and tiger geocoder, `pgrouting`, `h3`, `h3_postgis` |
-| Scheduling and views | `pg_cron`, `pg_ivm` (incrementally maintained materialised views) |
+| Scheduling and views | `pg_durable` (durable SQL workflows), `pg_cron`, `pg_ivm` (incrementally maintained materialised views) |
 | Procedural languages | `plpython3u` (Python 3.14), `pljs` (JavaScript on QuickJS), `plpgsql_check` |
 | Queues and APIs | `pgmq`, `pg_graphql`, `http` (HTTP requests from SQL), `pgjwt` |
 | Search and similarity | `rum`, `pg_bigm`, `pg_similarity`, `pg_trgm`, `fuzzystrmatch`, `unaccent` |
@@ -45,7 +45,7 @@ modules that are loaded rather than created: `safeupdate` (blocks `UPDATE` and
 `select name, default_version from pg_available_extensions order by 1`.
 
 For clusters created by this image, `pg_stat_statements`, `pg_cron`, `pg_ivm`
-and `pg_duckdb` are preloaded.
+`pg_duckdb` and `pg_durable` are preloaded.
 `pg_cron` lives in the `postgres` database, and its jobs run in background
 workers, so they need no password.
 
@@ -54,6 +54,53 @@ workers, so they need no password.
 create extension pg_cron;
 select cron.schedule_in_database('nightly-vacuum', '0 3 * * *', 'vacuum analyze', 'app');
 ```
+
+### Durable SQL workflows
+
+`pg_durable` 0.2.9 is bundled for PostgreSQL 18 on x86_64 Linux. It runs its
+own background worker; it does not depend on `pg_background`, `pg_cron`,
+Redis or an external worker service. On PSR-managed clusters the image preloads
+it, uses `/run/postgresql` for its password-free trusted-socket connections,
+sets `pg_durable.worker_role` to `POSTGRES_USER` (a superuser), and keeps
+`pg_durable.database=postgres`, even when `POSTGRES_DB=app`. Extensions are
+still created explicitly. Install in the control database first:
+
+```sql
+-- Connect to postgres as the bootstrap superuser.
+CREATE EXTENSION pg_durable;
+CREATE ROLE workflow_user LOGIN;
+SELECT df.grant_usage('workflow_user');
+-- Grant this role the table privileges its workflows need separately.
+```
+
+After the worker is ready, connect directly as that login role to `postgres`:
+
+```sql
+SELECT df.start('SELECT 40 + 2 AS answer');
+SELECT id, status FROM df.instances;
+```
+
+Readiness is visible in `df._worker_epoch` (a recent `last_seen_at` in the
+control database). Install the extension in other databases only after control
+is ready. Grants are per database. Superuser workflow submissions remain disabled;
+use an ordinary LOGIN role with explicit grants. HTTP retains upstream's
+`restricted` policy and domain allow-list.
+
+The image's `max_worker_processes=16` provides room for pg_durable's worker,
+cron and parallel work. Its connection pools use ordinary backend connections,
+not one background-worker slot per task. Default pool ceilings total 39
+connections, plus new-transaction launch sessions, backend API connections and
+application traffic. Size `max_connections` and pool limits for your workload;
+PostgreSQL's default 100 is sufficient for the smoke workload, not every load.
+See the [upstream connection budget](https://github.com/microsoft/pg_durable/blob/v0.2.9/USER_GUIDE.md#connection-limits).
+
+Imported clusters retain their settings. To enable pg_durable there, preserve
+all required libraries in `POSTGRES_SHARED_PRELOAD_LIBRARIES`, pass
+`-c pg_durable.host=/run/postgresql -c pg_durable.worker_role=<existing-superuser>`
+and ensure worker/connection limits and local authentication permit it, then
+restart and create the extension in `postgres`. Command-line `-c` settings
+also override the managed defaults. No extensions or roles are created
+automatically on existing volumes.
 
 ## Configuration
 
@@ -69,7 +116,7 @@ select cron.schedule_in_database('nightly-vacuum', '0 3 * * *', 'vacuum analyze'
 | `PGDATA` | `/var/lib/postgresql/18/docker` | Data directory. Mount a volume at `/var/lib/postgresql`. |
 | `POSTGRES_SSL_CERT_FILE`, `POSTGRES_SSL_KEY_FILE` | self-signed under `/run/psr-services` for new clusters | Use your own certificate, e.g. from a Kubernetes secret. |
 | `POSTGRES_SSL_CN` | `postgres` | Common name of the generated certificate. |
-| `POSTGRES_SHARED_PRELOAD_LIBRARIES` | `pg_stat_statements,pg_cron,pg_ivm,pg_duckdb` | Change what is preloaded. |
+| `POSTGRES_SHARED_PRELOAD_LIBRARIES` | `pg_stat_statements,pg_cron,pg_ivm,pg_duckdb,pg_durable` | Change what is preloaded. |
 | `POSTGRES_CRON_DATABASE` | `postgres` | Database that holds `pg_cron`'s tables. |
 | `PGBOUNCER_ENABLED` | `true` | Start the connection pooler. |
 | `PGBOUNCER_PORT` | `6432` | Pooler's TCP port; configurable independently of PostgreSQL. |
@@ -620,7 +667,8 @@ tests/smoke.sh smoke docker
 The smoke test checks SSL, PgBouncer authentication and TLS, PostgREST's refusal
 of anonymous requests, a JWT signed with the default password (when OpenSSL is
 available), service secret isolation, pgweb basic auth when enabled, the
-preloaded libraries, init scripts and `pg_cron`, then creates every available
+preloaded libraries, init scripts, `pg_cron` and a completed non-superuser
+`pg_durable` workflow, then creates every available
 extension. CI also checks service
 switches and shutdown, runs on every pull request and pushes the image to GHCR
 from `main`.
