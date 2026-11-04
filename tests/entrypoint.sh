@@ -240,7 +240,14 @@ echo 'ok   supplied certificate paths are never generated or overwritten'
 boot
 touch "$work/data/.psr-managed"
 start
-tr '\0' '\n' < "$work/results/postgres.argv" | grep -qF shared_preload_libraries=pg_stat_statements,pg_cron,pg_ivm,pg_duckdb
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF shared_preload_libraries=pg_stat_statements,pg_cron,pg_ivm,pg_duckdb,pg_durable
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF pg_durable.host=/run/postgresql
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF pg_durable.database=postgres
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF max_worker_processes=16
+start POSTGRES_USER=owner
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF pg_durable.worker_role=owner
+start POSTGRES_SHARED_PRELOAD_LIBRARIES=pg_stat_statements
+tr '\0' '\n' < "$work/results/postgres.argv" | grep -qxF shared_preload_libraries=pg_stat_statements
 test -n "$(find "$work/runtime" -name server.key -print)"
 echo 'ok   PSR-created clusters retain defaults on restart'
 

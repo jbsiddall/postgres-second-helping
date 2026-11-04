@@ -1,6 +1,6 @@
 # Implementation decisions
 
-## Only extensions that work without preload
+## Preload policy and the pg_durable exception
 
 The image includes an extension only if `CREATE EXTENSION` succeeds with the
 default `shared_preload_libraries`. Rejected: also bundling `pg_net`,
@@ -14,6 +14,29 @@ fails on any error.
 
 To add one anyway, add its attribute to `flake.nix` and its library to the
 default preload list in `entrypoint.sh`.
+
+pg_durable is an explicit exception requested on 2026-11-04. Bundle stable
+0.2.9 for PG18 amd64, verify the Debian asset against upstream SHA256SUMS,
+extract only its extension files, and use autoPatchelfHook to resolve OpenSSL,
+zlib, zstd and the GCC runtime from Nix. No Debian scripts or demo settings
+run. Rejected: replacing the Nix image with upstream's evaluation-only Docker
+image, tracking unreleased main, or building the Rust/pgrx toolchain on every
+image build. Cost: this package uses upstream's compiled binary rather than
+source and is limited to the image's existing x86_64-linux target.
+
+Preload pg_durable for managed clusters and use its own background worker,
+the trusted local socket, postgres control database and POSTGRES_USER worker
+role. The existing 16 worker slots cover the added worker; connection pools
+consume ordinary max_connections capacity (39 configured pool slots plus
+other sessions). No pg_background extension dependency is needed. Keep explicit
+CREATE EXTENSION and grants, restricted HTTP, and disabled superuser workflows.
+Imported cluster settings remain untouched. Cost: managed clusters pay for the
+worker even before opting into SQL objects; operators must budget connections
+and preserve these requirements when overriding defaults. Checks:
+tests/entrypoint.sh covers role/socket/preload defaults and overrides;
+tests/pg-durable.sh requires heartbeat and actual non-superuser SQL completion;
+CI repeats it with POSTGRES_USER=owner after restart and creates a satellite
+extension in the all-extensions smoke test.
 
 ## numpy is replaced by an empty path
 

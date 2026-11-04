@@ -47,6 +47,22 @@ jobs:
           tests/smoke.sh smoke docker
       - name: Official volume
         run: tests/official-volume.sh "postgres-sunday-roast:$VERSION" docker
+      - name: pg_durable custom bootstrap role and restart
+        run: |
+          docker run -d --name durable -e POSTGRES_USER=owner -e POSTGRES_DB=app \
+            -e POSTGRES_PASSWORD=smoke-only -e PGBOUNCER_ENABLED=false -e POSTGREST_ENABLED=false \
+            "postgres-sunday-roast:$VERSION"
+          for _ in $(seq 90); do
+            if docker exec durable pg_isready -h 127.0.0.1 -q; then break; fi
+            sleep 1
+          done
+          bash tests/pg-durable.sh durable docker owner
+          docker restart durable
+          for _ in $(seq 90); do
+            if docker exec durable pg_isready -h 127.0.0.1 -q; then break; fi
+            sleep 1
+          done
+          bash tests/pg-durable.sh durable docker owner
       - name: Service switches and PostgreSQL failure
         run: |
           wait_postgres() {
@@ -105,7 +121,7 @@ jobs:
       - name: Logs on failure
         if: failure()
         run: |
-          for container in smoke defaults disabled no-web-password; do docker logs "$container" || true; done
+          for container in smoke defaults disabled no-web-password durable; do docker logs "$container" || true; done
       - name: Size
         run: |
           docker image inspect "postgres-sunday-roast:$VERSION" --format '{{.Size}}' |

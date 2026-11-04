@@ -194,7 +194,7 @@ case "${pgweb_enabled,,}" in
     ;;
 esac
 
-check preload "$(psql -c 'show shared_preload_libraries')" pg_stat_statements,pg_cron,pg_ivm,pg_duckdb
+check preload "$(psql -c 'show shared_preload_libraries')" pg_stat_statements,pg_cron,pg_ivm,pg_duckdb,pg_durable
 check collate "$(psql -c "select datcollate from pg_database where datname = 'postgres'")" en_US.UTF-8
 check initdb-sql "$(psql -d app -c 'select count(*) from items')" 2
 check initdb-sh "$(psql -d app -c "select has_table_privilege('reader', 'items', 'select')")" t
@@ -213,6 +213,8 @@ done
 psql -c "select cron.unschedule('smoke')" -c 'drop table cron_smoke' > /dev/null
 check cron-runs "$ran" t
 
+# Control must be installed and ready before pg_durable in satellite smoke.
+bash "$(dirname "$0")/pg-durable.sh" "$container" "$engine"
 psql -c 'drop database if exists smoke' -c 'create database smoke'
 # pg_cron can only live in cron.database_name, which is checked above. Fetch
 # the list first, so a failed query fails the test instead of skipping the loop.
