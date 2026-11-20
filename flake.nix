@@ -71,7 +71,7 @@
       };
 
       image = pkgs.dockerTools.buildLayeredImage {
-        name = "postgres-sunday-roast";
+        name = "postgres-second-helping";
         tag = pkgs.postgresql_18.version;
         contents = [ postgres pgbouncer postgrest pkgs.pgweb pkgs.s6 entrypoint nss locales pkgs.bashInteractive pkgs.coreutils pkgs.gnugrep pkgs.gnused pkgs.gzip pkgs.openssl pkgs.tzdata pkgs.cacert ];
         fakeRootCommands = ''
@@ -93,7 +93,7 @@
           ExposedPorts."8081/tcp" = { };
           Volumes."/var/lib/postgresql" = { };
           Labels = {
-            "org.opencontainers.image.source" = "https://github.com/jbsiddall/Postgres-Sunday-Roast";
+            "org.opencontainers.image.source" = "https://github.com/jbsiddall/postgres-second-helping";
             "org.opencontainers.image.description" = "PostgreSQL ${pkgs.postgresql_18.version} with 90+ extensions, built with Nix";
             "org.opencontainers.image.licenses" = "Apache-2.0";
           };

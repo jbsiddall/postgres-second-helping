@@ -20,7 +20,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      IMAGE: ghcr.io/jbsiddall/postgres-sunday-roast
+      IMAGE: ghcr.io/jbsiddall/postgres-second-helping
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
@@ -41,17 +41,19 @@ jobs:
       - name: Smoke test
         run: |
           docker load < image.tar.gz
+          source="$(docker image inspect "postgres-second-helping:$VERSION" --format '{{ index .Config.Labels "org.opencontainers.image.source" }}')"
+          test "$source" = "https://github.com/$GITHUB_REPOSITORY"
           docker run -d --name smoke --cap-drop=ALL --security-opt=no-new-privileges \
             -e POSTGRES_PASSWORD=smoke-only-at-least-32-characters -e POSTGRES_DB=app -e PGWEB_ENABLED=1 \
-            -v "$PWD/tests/initdb:/docker-entrypoint-initdb.d:ro" "postgres-sunday-roast:$VERSION"
+            -v "$PWD/tests/initdb:/docker-entrypoint-initdb.d:ro" "postgres-second-helping:$VERSION"
           tests/smoke.sh smoke docker
       - name: Official volume
-        run: tests/official-volume.sh "postgres-sunday-roast:$VERSION" docker
+        run: tests/official-volume.sh "postgres-second-helping:$VERSION" docker
       - name: pg_durable custom bootstrap role and restart
         run: |
           docker run -d --name durable -e POSTGRES_USER=owner -e POSTGRES_DB=app \
             -e POSTGRES_PASSWORD=smoke-only -e PGBOUNCER_ENABLED=false -e POSTGREST_ENABLED=false \
-            "postgres-sunday-roast:$VERSION"
+            "postgres-second-helping:$VERSION"
           for _ in $(seq 90); do
             if docker exec durable pg_isready -h 127.0.0.1 -q; then break; fi
             sleep 1
@@ -76,7 +78,7 @@ jobs:
           listening() {
             docker exec "$1" bash -c 'exec 3<>/dev/tcp/127.0.0.1/"$1"' bash "$2" 2>/dev/null
           }
-          docker run -d --name defaults -e POSTGRES_PASSWORD=smoke-only "postgres-sunday-roast:$VERSION"
+          docker run -d --name defaults -e POSTGRES_PASSWORD=smoke-only "postgres-second-helping:$VERSION"
           wait_postgres defaults
           # Wait for the default services before checking the disabled listener.
           for _ in $(seq 60); do
@@ -95,7 +97,7 @@ jobs:
           docker run -d --name disabled --read-only --cap-drop=ALL --security-opt=no-new-privileges \
             --tmpfs /run/postgresql:mode=1777 --tmpfs /run/psr-services:exec,mode=1777 --tmpfs /tmp \
             -e POSTGRES_PASSWORD=smoke-only \
-            -e PGBOUNCER_ENABLED=false -e POSTGREST_ENABLED=false "postgres-sunday-roast:$VERSION"
+            -e PGBOUNCER_ENABLED=false -e POSTGREST_ENABLED=false "postgres-second-helping:$VERSION"
           wait_postgres disabled
           for port in 6432 3000 8081; do
             if listening disabled "$port"; then exit 1; fi
@@ -104,14 +106,14 @@ jobs:
           test "$(docker inspect disabled --format '{{.State.ExitCode}}')" = 0
           # Trust permits PostgreSQL without a password, but never pgweb.
           docker run -d --name no-web-password -e POSTGRES_HOST_AUTH_METHOD=trust \
-            -e PGWEB_ENABLED=1 "postgres-sunday-roast:$VERSION"
+            -e PGWEB_ENABLED=1 "postgres-second-helping:$VERSION"
           timeout 15 docker wait no-web-password
           test "$(docker inspect no-web-password --format '{{.State.ExitCode}}')" != 0
           docker logs no-web-password 2>&1 | grep -F 'set PGWEB_AUTH_PASS or POSTGRES_PASSWORD'
       - name: Commands
         run: |
-          docker run --rm "postgres-sunday-roast:$VERSION" postgres --version
-          docker run --rm "postgres-sunday-roast:$VERSION" psql --version
+          docker run --rm "postgres-second-helping:$VERSION" postgres --version
+          docker run --rm "postgres-second-helping:$VERSION" psql --version
           # s6 sends postgres SIGINT, so a busy client cannot hold up a stop.
           docker exec -d smoke psql -h /run/postgresql -U postgres -c 'select pg_sleep(600)'
           docker exec -d smoke bash -c 'PGPASSWORD=$POSTGRES_PASSWORD psql "host=127.0.0.1 port=6432 user=postgres dbname=postgres" -c "select pg_sleep(600)"'
@@ -124,7 +126,7 @@ jobs:
           for container in smoke defaults disabled no-web-password durable; do docker logs "$container" || true; done
       - name: Size
         run: |
-          docker image inspect "postgres-sunday-roast:$VERSION" --format '{{.Size}}' |
+          docker image inspect "postgres-second-helping:$VERSION" --format '{{.Size}}' |
             numfmt --to=iec --suffix=B | sed 's/^/Uncompressed image: /' >> "$GITHUB_STEP_SUMMARY"
       - name: Push
         if: github.ref == 'refs/heads/main'
@@ -142,4 +144,8 @@ jobs:
             skopeo copy --dest-creds "$creds" docker-archive:image.tar.gz "docker://$IMAGE:$t"
           done
           digest="$(skopeo inspect --creds "$creds" --format '{{.Digest}}' "docker://$IMAGE:$pinned")"
-          echo "Pushed \`$IMAGE:$pinned@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          for t in "${tags[@]}"; do
+            published="$(skopeo inspect --creds "$creds" --format '{{.Digest}} {{index .Labels "org.opencontainers.image.source"}}' "docker://$IMAGE:$t")"
+            test "$published" = "$digest https://github.com/$GITHUB_REPOSITORY"
+            printf 'Verified %s:%s@%s.\n' "$IMAGE" "$t" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          done
