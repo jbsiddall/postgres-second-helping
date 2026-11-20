@@ -1,4 +1,4 @@
-# Postgres Sunday Roast
+# Postgres Second Helping
 
 PostgreSQL 18 with all the trimmings: one container image with 93 extensions
 ready to `CREATE EXTENSION`. It includes vectors, geospatial, DuckDB analytics,
@@ -12,7 +12,7 @@ most setups.
 
 ```sh
 docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=change-me \
-  -v pgdata:/var/lib/postgresql ghcr.io/jbsiddall/postgres-sunday-roast:18
+  -v pgdata:/var/lib/postgresql ghcr.io/jbsiddall/postgres-second-helping:18
 ```
 
 ```sh
@@ -153,7 +153,7 @@ defaults, both during init scripts and afterwards. A leading `postgres` is
 optional, so Compose files written for the official image keep working:
 
 ```sh
-docker run ... ghcr.io/jbsiddall/postgres-sunday-roast:18 -c shared_buffers=1GB -c duckdb.max_memory=2GB
+docker run ... ghcr.io/jbsiddall/postgres-second-helping:18 -c shared_buffers=1GB -c duckdb.max_memory=2GB
 ```
 
 Any other command, such as `psql`, `pg_dump` or `bash`, runs instead of the
@@ -308,7 +308,7 @@ docker run -d --name pg --read-only \
   --tmpfs /run/postgresql:mode=1777 \
   --tmpfs /run/psr-services:exec,mode=1777 --tmpfs /tmp \
   -e POSTGRES_PASSWORD=change-me -v pgdata:/var/lib/postgresql \
-  ghcr.io/jbsiddall/postgres-sunday-roast:18
+  ghcr.io/jbsiddall/postgres-second-helping:18
 ```
 
 `/run/psr-services` must permit execution because s6 executes generated run
@@ -319,7 +319,7 @@ and shutdown scripts there. Docker tmpfs mounts need the explicit `exec` flag.
 ```yaml
 services:
   db:
-    image: ghcr.io/jbsiddall/postgres-sunday-roast:18
+    image: ghcr.io/jbsiddall/postgres-second-helping:18
     environment:
       POSTGRES_PASSWORD: change-me
       POSTGRES_DB: app
@@ -412,7 +412,7 @@ spec:
     runAsNonRoot: true
   initContainers:
     - name: prepare-tls
-      image: ghcr.io/jbsiddall/postgres-sunday-roast:18
+      image: ghcr.io/jbsiddall/postgres-second-helping:18
       securityContext:
         runAsUser: 0
         runAsGroup: 0
@@ -438,7 +438,7 @@ spec:
         - { name: tls-ready, mountPath: /tls-ready }
   containers:
     - name: postgres
-      image: ghcr.io/jbsiddall/postgres-sunday-roast:18
+      image: ghcr.io/jbsiddall/postgres-second-helping:18
       env:
         - { name: POSTGRES_SSL_CERT_FILE, value: /etc/postgres-tls/pair/server.crt }
         - { name: POSTGRES_SSL_KEY_FILE, value: /etc/postgres-tls/pair/server.key }
@@ -461,7 +461,7 @@ If policy disallows a root init container, use an administrator-prepared mount
 with the same final access. Do not broaden the key's permissions.
 
 Pin both image references by digest
-(`ghcr.io/jbsiddall/postgres-sunday-roast@sha256:...`); each CI run prints the
+(`ghcr.io/jbsiddall/postgres-second-helping@sha256:...`); each CI run prints the
 digest in its summary.
 
 ## Tags
@@ -531,7 +531,7 @@ This does not cover Alpine images, another architecture or another major version
    ```sh
    docker run -d --name pg --user 999:999 \
      -e PGBOUNCER_ENABLED=false -e POSTGREST_ENABLED=false \
-     -v pgdata:/var/lib/postgresql ghcr.io/jbsiddall/postgres-sunday-roast:18
+     -v pgdata:/var/lib/postgresql ghcr.io/jbsiddall/postgres-second-helping:18
    ```
 
 4. Before reopening traffic, inspect logs and connect to every application
@@ -660,7 +660,7 @@ add it to the list in `flake.nix`, then run the smoke test against a container:
 ```sh
 docker run -d --name smoke -e POSTGRES_PASSWORD=smoke-only-at-least-32-characters \
   -e POSTGRES_DB=app -e PGWEB_ENABLED=1 \
-  -v "$PWD/tests/initdb:/docker-entrypoint-initdb.d:ro" postgres-sunday-roast:18.6
+  -v "$PWD/tests/initdb:/docker-entrypoint-initdb.d:ro" postgres-second-helping:18.6
 tests/smoke.sh smoke docker
 ```
 
@@ -680,8 +680,8 @@ It prints `collation-version-warning: yes` or `no` without failing on the
 warning, and removes the containers and volume even on failure:
 
 ```sh
-tests/official-volume.sh postgres-sunday-roast:18.6 podman
-# Or: tests/official-volume.sh postgres-sunday-roast:18.6 docker
+tests/official-volume.sh postgres-second-helping:18.6 podman
+# Or: tests/official-volume.sh postgres-second-helping:18.6 docker
 ```
 
 ## Not included
